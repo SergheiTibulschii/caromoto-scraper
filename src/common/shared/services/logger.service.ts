@@ -13,16 +13,24 @@ class LoggerService {
       ),
     );
 
+    const logTransports: any[] = [
+      new transports.Console({
+        format: format.combine(format.colorize(), logFormat),
+      }),
+    ];
+
+    // Only use file logging in development (not in production/Cloud Run)
+    if (process.env.NODE_ENV !== 'production') {
+      logTransports.push(
+        new transports.File({ filename: 'logs/error.log', level: 'error' }),
+        new transports.File({ filename: 'logs/combined.log' }),
+      );
+    }
+
     this.logger = createLogger({
       level: 'info',
       format: logFormat,
-      transports: [
-        new transports.Console({
-          format: format.combine(format.colorize(), logFormat),
-        }),
-        new transports.File({ filename: 'logs/error.log', level: 'error' }),
-        new transports.File({ filename: 'logs/combined.log' }),
-      ],
+      transports: logTransports,
     });
 
     // Set max listeners to avoid warnings

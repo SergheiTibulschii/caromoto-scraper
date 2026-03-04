@@ -94,17 +94,26 @@ class CaromotoScraperApp {
 
       // In production with scheduler, keep the process alive for debugging
       if (this.mode === 'prod' && schedulerConfig.enabled && this.httpServer) {
-        this.logger.error(
-          'Keeping HTTP server alive for debugging. Check logs and secrets configuration.',
-        );
-        this.logger.error('Visit the /health endpoint to see service status.');
+        this.logger.error('='.repeat(60));
+        this.logger.error('SERVICE IN ERROR STATE - HTTP SERVER RUNNING');
+        this.logger.error('='.repeat(60));
         this.logger.error(`Error: ${errorMessage}`);
-        // Keep process alive
+        this.logger.error('Visit /health endpoint for details');
+        this.logger.error('Common issues:');
+        this.logger.error('  1. Secret Manager permissions not granted');
+        this.logger.error('  2. Redis connection failed');
+        this.logger.error('  3. Missing environment variables');
+        this.logger.error('='.repeat(60));
+
+        // Keep process alive with periodic logging
         setInterval(() => {
-          this.logger.error(
-            '[ERROR STATE] Service failed to initialize. Check Redis connection and secrets.',
+          this.logger.warn(
+            '[ERROR STATE] Waiting for fix. Check secrets and Redis.',
           );
         }, 60000);
+
+        // DON'T throw - explicitly return to keep process alive
+        return;
       } else {
         throw error;
       }
