@@ -183,7 +183,7 @@ class CaromotoScraperApp {
       }
     });
 
-    this.httpServer.listen(port, '0.0.0.0', () => {
+    this.httpServer.listen(Number(port), '0.0.0.0', () => {
       this.logger.info(`✓ Health check server listening on port ${port}`);
     });
 
