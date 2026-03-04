@@ -27,6 +27,8 @@ class CaromotoScraperApp {
   private outputDir: string;
   private readonly MAX_RETRIES = 3;
   private httpServer?: http.Server;
+  private isInitialized = false;
+  private initError?: string;
 
   constructor(mode: AppMode = 'prod') {
     this.mode = mode;
@@ -52,9 +54,19 @@ class CaromotoScraperApp {
       } else {
         this.logger.info('=== Caromoto Scraper - PRODUCTION MODE ===');
 
+        // Start health check server FIRST for Cloud Run
+        this.startHealthCheckServer();
+        this.setupProcessHandlers();
+
         if (!this.storage) {
           throw new Error('Redis storage not initialized');
         }
+
+        this.logger.info('Connecting to Redis...');
+        this.logger.info(
+          `Redis Host: ${process.env.REDIS_HOST ? '***' : 'NOT SET'}`,
+        );
+        this.logger.info(`Redis Port: ${process.env.REDIS_PORT || '6379'}`);
 
         await this.storage.connect();
 
@@ -63,21 +75,39 @@ class CaromotoScraperApp {
           throw new Error('Redis connection failed');
         }
 
-        // Start health check server for Cloud Run
-        this.startHealthCheckServer();
-
-        this.setupProcessHandlers();
+        this.logger.info('✓ Redis connected successfully');
 
         if (schedulerConfig.enabled) {
           await this.setupScheduler();
+          this.isInitialized = true;
+          this.logger.info('✓ Application fully initialized');
         } else {
+          this.isInitialized = true;
           await this.runScrapingJob();
           await this.shutdown();
         }
       }
     } catch (error) {
+      const errorMessage = (error as Error).message || String(error);
+      this.initError = errorMessage;
       this.logger.error('Initialization failed', error as Error);
-      throw error;
+
+      // In production with scheduler, keep the process alive for debugging
+      if (this.mode === 'prod' && schedulerConfig.enabled && this.httpServer) {
+        this.logger.error(
+          'Keeping HTTP server alive for debugging. Check logs and secrets configuration.',
+        );
+        this.logger.error('Visit the /health endpoint to see service status.');
+        this.logger.error(`Error: ${errorMessage}`);
+        // Keep process alive
+        setInterval(() => {
+          this.logger.error(
+            '[ERROR STATE] Service failed to initialize. Check Redis connection and secrets.',
+          );
+        }, 60000);
+      } else {
+        throw error;
+      }
     }
   }
 
@@ -123,24 +153,42 @@ class CaromotoScraperApp {
         const uptime = process.uptime();
         const schedulerStatus = this.scheduler?.getAllJobsStats() || {};
 
+        const healthData = {
+          status: this.initError
+            ? 'error'
+            : this.isInitialized
+              ? 'healthy'
+              : 'initializing',
+          initialized: this.isInitialized,
+          error: this.initError || undefined,
+          uptime: Math.floor(uptime),
+          timestamp: new Date().toISOString(),
+          mode: this.mode,
+          scheduler: schedulerConfig.enabled ? 'active' : 'disabled',
+          jobs: schedulerStatus,
+          redis: this.storage ? 'connected' : 'not connected',
+          env: {
+            nodeEnv: process.env.NODE_ENV,
+            redisHostSet: !!process.env.REDIS_HOST,
+            redisPasswordSet: !!process.env.REDIS_PASSWORD,
+            redisPort: process.env.REDIS_PORT || '6379',
+          },
+        };
+
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(
-          JSON.stringify({
-            status: 'healthy',
-            uptime: Math.floor(uptime),
-            timestamp: new Date().toISOString(),
-            scheduler: schedulerConfig.enabled ? 'active' : 'disabled',
-            jobs: schedulerStatus,
-          }),
-        );
+        res.end(JSON.stringify(healthData, null, 2));
       } else {
         res.writeHead(404, { 'Content-Type': 'text/plain' });
         res.end('Not Found');
       }
     });
 
-    this.httpServer.listen(port, () => {
-      this.logger.info(`Health check server listening on port ${port}`);
+    this.httpServer.listen(port, '0.0.0.0', () => {
+      this.logger.info(`✓ Health check server listening on port ${port}`);
+    });
+
+    this.httpServer.on('error', (error) => {
+      this.logger.error('HTTP server error', error);
     });
   }
 
