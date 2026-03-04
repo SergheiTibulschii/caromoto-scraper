@@ -94,7 +94,10 @@ export class RedisStorageService {
   private async configurePersistence(): Promise<void> {
     try {
       const currentConfig = await this.client.config('GET', 'save');
-      this.logger.info('Current Redis save configuration:', currentConfig);
+      this.logger.info(
+        'Current Redis save configuration:',
+        currentConfig as Record<string, any>,
+      );
 
       // Configure Redis persistence:
       // - Save after 300 seconds (5 min) if at least 1 key changed
