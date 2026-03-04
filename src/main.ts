@@ -9,6 +9,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { TelegramService } from './services';
 import { extractVitalDetails } from './common/utils/format-car-details';
+import * as http from 'http';
 
 dotenv.config();
 
@@ -25,6 +26,7 @@ class CaromotoScraperApp {
   private mode: AppMode;
   private outputDir: string;
   private readonly MAX_RETRIES = 3;
+  private httpServer?: http.Server;
 
   constructor(mode: AppMode = 'prod') {
     this.mode = mode;
@@ -60,6 +62,9 @@ class CaromotoScraperApp {
         if (!isConnected) {
           throw new Error('Redis connection failed');
         }
+
+        // Start health check server for Cloud Run
+        this.startHealthCheckServer();
 
         this.setupProcessHandlers();
 
@@ -108,6 +113,35 @@ class CaromotoScraperApp {
       this.logger.info('[HEARTBEAT] Process alive, scheduler running');
       this.logNextJobTime();
     }, 60000); // Every 1 minute
+  }
+
+  private startHealthCheckServer(): void {
+    const port = process.env.PORT || 8080;
+
+    this.httpServer = http.createServer((req, res) => {
+      if (req.url === '/health' || req.url === '/') {
+        const uptime = process.uptime();
+        const schedulerStatus = this.scheduler?.getAllJobsStats() || {};
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            status: 'healthy',
+            uptime: Math.floor(uptime),
+            timestamp: new Date().toISOString(),
+            scheduler: schedulerConfig.enabled ? 'active' : 'disabled',
+            jobs: schedulerStatus,
+          }),
+        );
+      } else {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('Not Found');
+      }
+    });
+
+    this.httpServer.listen(port, () => {
+      this.logger.info(`Health check server listening on port ${port}`);
+    });
   }
 
   private logNextJobTime(): void {
@@ -387,6 +421,10 @@ ${car.redFlagsList.length > 0 ? '\n⚠️ *Red Flags:*\n' + car.redFlagsList.map
     this.logger.info('Shutting down...');
 
     try {
+      if (this.httpServer) {
+        this.httpServer.close();
+        this.logger.info('HTTP server closed');
+      }
       if (this.scheduler) {
         this.scheduler.stopAll();
       }
