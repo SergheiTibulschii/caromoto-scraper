@@ -1,0 +1,6 @@
+# Output files
+output/
+*.json
+
+# But keep the folder structure
+!.gitkeep

@@ -1,23 +1,74 @@
-# Use an official Node.js base image
-FROM node:18
+# Multi-stage build for optimized production image
+FROM node:18-slim AS builder
 
-# Set the working directory in the container
-WORKDIR /usr/src/app
+# Install dependencies needed for building
+WORKDIR /app
 
-# Copy the package.json and package-lock.json
+# Copy package files
 COPY package*.json ./
 
-# Install application dependencies
-RUN npm install
+# Install all dependencies (including dev dependencies for build)
+RUN npm ci
 
-# Copy the rest of the application
+# Copy source code
 COPY . .
 
-# Build the TypeScript project
+# Build TypeScript
 RUN npm run build
 
-# Expose the application port
-EXPOSE $PORT
+# Production stage
+FROM node:18-slim
 
-# Define the command to run based on the environment
-CMD ["sh", "-c", "if [ \"$NODE_ENV\" = \"production\" ]; then npm run start:prod; else npm start; fi"]
+# Install Playwright dependencies and Chromium browser
+RUN apt-get update && apt-get install -y \
+    wget \
+    ca-certificates \
+    fonts-liberation \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libatspi2.0-0 \
+    libcups2 \
+    libdbus-1-3 \
+    libdrm2 \
+    libgbm1 \
+    libgtk-3-0 \
+    libnspr4 \
+    libnss3 \
+    libwayland-client0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxkbcommon0 \
+    libxrandr2 \
+    xdg-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy package files and install production dependencies only
+COPY package*.json ./
+RUN npm ci --only=production
+
+# Install Playwright browsers (chromium only for efficiency)
+RUN npx playwright install chromium
+
+# Copy built application from builder stage
+COPY --from=builder /app/build ./build
+
+# Create output directory
+RUN mkdir -p /app/output
+
+# Set environment variables
+ENV NODE_ENV=production
+ENV PLAYWRIGHT_HEADLESS=true
+ENV PORT=8080
+
+# Expose port (Cloud Run uses PORT env variable)
+EXPOSE 8080
+
+# Run as non-root user for security
+USER node
+
+# Start the application
+CMD ["node", "build/main.js"]

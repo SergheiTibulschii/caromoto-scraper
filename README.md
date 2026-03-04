@@ -1,340 +1,503 @@
-# Node.js TypeScript Starter Project
+# Caromoto Scraper
 
-This project is a simple and lightweight Node.js boilerplate using TypeScript. It includes Docker configurations to run the application in both development and production modes, along with enhanced security features such as rate limiting and brute force protection.
+Automated scraper for Caromoto website with intelligent car detail fetching, scheduled jobs, Redis persistence, and Telegram notifications.
 
----
+## ✨ Features
 
-🛑🛑🛑 Check our latest complete boilerplate for NodeTs [Node Typescript Wizard](https://github.com/fless-lab/ntw-init) 
+### Core Features
+- **Two Operating Modes**: Dev mode (no Redis) and Production mode (full features)
+- **Intelligent Detail Fetching**: Automatically fetches details ONLY for new cars
+- **Smart Comparison**: Compares scrapes to detect newly appeared cars
+- **Scheduled Scraping**: Runs automatically based on configurable cron schedule
+- **Persistent Storage**: Redis with RDB/AOF persistence for crash recovery
+- **Telegram Notifications**: Get notified about scraping results
+- **File Backups**: Saves JSON files in addition to Redis storage
+- **Job Statistics**: Track scraping history and performance
+- **Graceful Shutdown**: Handles SIGTERM/SIGINT properly
 
-## Table of Contents
+### Development Mode
+- ✅ No Redis/Docker required
+- ✅ Runs once immediately
+- ✅ Fetches details for first car
+- ✅ Perfect for testing
 
-1. [Prerequisites](#prerequisites)
-2. [Installation](#installation)
-3. [Running the Application](#running-the-application)
-4. [Project Structure](#project-structure)
-5. [Scripts Explanation](#scripts-explanation)
-6. [Environment Variables](#environment-variables)
-7. [Docker Configuration](#docker-configuration)
-8. [Security Features](#security-features)
-9. [Linting and Formatting](#linting-and-formatting)
-10. [Commit Message Guidelines](#commit-message-guidelines)
-11. [Accessing Services](#accessing-services)
-12. [Contributing](#contributing)
+### Production Mode
+- ✅ Redis persistence
+- ✅ Scheduled execution
+- ✅ Smart comparison logic
+- ✅ Fetches details only for new cars
+- ✅ Continuous monitoring
+
+## Architecture
+
+```
+src/
+├── main.ts                          # Main entry point (two-mode support)
+├── services/
+│   ├── redis-storage.service.ts     # Redis persistence layer
+│   ├── scheduler.service.ts         # Job scheduler
+│   ├── car-details.service.ts       # Car detail fetching (NEW!)
+│   └── telegram.service.ts          # Telegram notifications
+├── apps/scraper/
+│   ├── caromoto-auth-mercedes-gle-scraper/
+│   │   └── index.ts                 # Main scraper implementation
+│   └── services/
+│       ├── scraper.service.ts       # Core scraping logic
+│       ├── browser-manager.service.ts
+│       ├── page-pool.service.ts
+│       └── data-extractor.service.ts
+├── core/config/
+│   ├── redis.config.ts
+│   ├── scheduler.config.ts
+│   └── playwright.config.ts
+└── output/                          # Car details output directory (NEW!)
+```
 
 ## Prerequisites
 
-Ensure you have the following installed on your system:
+### For Development Mode
+- Node.js 18+ and npm
+- Valid Caromoto credentials
 
-- Node.js (version 18 or above)
-- Docker
-- Docker Compose
+### For Production Mode
+- Node.js 18+ and npm
+- Docker and Docker Compose (for Redis)
+- Valid Caromoto credentials
 
 ## Installation
 
-To set up the project, follow these steps:
+1. Clone the repository
+2. Install dependencies:
 
-1. **Clone the repository**:
-    ```sh
-    git clone https://github.com/your-username/node-ts-starter.git
-    cd node-ts-starter
-    ```
+```bash
+npm install
+```
 
-2. **Run the installation script**:
-    ```sh
-    bash bin/install.sh
-    ```
+3. Copy `.env.example` to `.env` and configure:
 
-    This script will:
-    - Copy the `.env.example` file to `.env`.
-    - Install the necessary npm dependencies.
+```bash
+cp .env.example .env
+```
 
-## Running the Application
+4. Edit `.env` with your settings:
+   - Redis connection details
+   - Caromoto credentials
+   - Telegram bot token (optional)
+   - Cron schedule
 
-You can run the application in either development or production mode.
+## Configuration
+
+### Scheduler Configuration
+
+Set your scraping schedule using cron expressions in `.env`:
+
+```env
+SCHEDULER_ENABLED=true
+SCRAPER_CRON_SCHEDULE=0 */6 * * *    # Every 6 hours
+SCHEDULER_TIMEZONE=Europe/Chisinau
+SCRAPER_RUN_ON_START=true            # Run immediately on start
+```
+
+**Common Cron Expressions:**
+- `0 */6 * * *` - Every 6 hours
+- `0 */12 * * *` - Every 12 hours
+- `0 0 * * *` - Daily at midnight
+- `0 9,17 * * *` - Daily at 9 AM and 5 PM
+- `*/30 * * * *` - Every 30 minutes
+
+### Redis Persistence
+
+Redis is configured for persistence with:
+- **RDB snapshots**: Point-in-time backups
+- **AOF logging**: Append-only file for durability
+
+Make sure your Redis server has persistence enabled in `redis.conf`:
+
+```conf
+save 900 1
+save 300 10
+save 60 10000
+appendonly yes
+appendfilename "appendonly.aof"
+```
+
+## Quick Start
+
+### Development Mode (Quick Test)
+
+Run scraper once, fetch details for first car, no Redis needed:
+
+```bash
+npm run start:dev
+```
+
+**Output:** `output/first-car-details.json`
+
+### Production Mode (Full Features)
+
+Run with Redis, scheduling, and smart new car detection:
+
+```bash
+npm run start:prod
+```
+
+**Output:** `output/new-cars-<timestamp>.json` (when new cars found)
+
+---
+
+## Usage
+
+### Development Mode Commands
+
+```bash
+# Run once with first car details (no Redis/Docker)
+npm run start:dev
+
+# Check output
+cat output/first-car-details.json
+```
+
+### Production Mode Commands
+
+```bash
+# Start production mode (starts Redis automatically)
+npm run start:prod
+
+# Alternative: TypeScript mode
+npm run start:prod:ts
+
+# Stop production
+npm run stop:prod
+
+# Check statistics
+npm run stats
+
+# View new cars detected
+ls -lth output/new-cars-*.json
+```
+
+### Docker Commands
+
+```bash
+# Start Redis only
+npm run docker:up
+
+# Stop Redis
+npm run docker:down
+
+# View Redis logs
+npm run docker:logs
+
+# Check Redis status
+docker-compose ps
+```
+
+### Legacy Commands
+
+```bash
+# Run once in production mode (requires Redis)
+npm run start:once
+
+# Manual scrape
+
+Run the scraper directly (legacy mode):
+
+```bash
+npm run scrape:manual
+```
+
+### View Statistics
+
+Check scraping history and job stats:
+
+```bash
+npm run stats
+```
 
 ### Development Mode
 
-To run the application in development mode:
-```sh
-bash bin/start.sh
+Run with auto-reload on file changes:
+
+```bash
+npm run start:dev
 ```
 
-### Production Mode
+## Car Details Feature
 
-To run the application in production mode:
-```sh
-bash bin/start.sh --prod
+### How It Works
+
+The application intelligently fetches detailed car information:
+
+#### Development Mode
+- Fetches details for **first car only**
+- Quick API test
+- Output: `output/first-car-details.json`
+
+#### Production Mode
+- Fetches details **only for NEW cars**
+- Compares current scrape with previous
+- Avoids redundant API calls
+- Output: `output/new-cars-<timestamp>.json`
+
+### First Production Run
+
+When Redis is empty, the application:
+1. Performs initial scrape → Saves to Redis
+2. Waits 5 seconds
+3. Performs second scrape → Compares → Fetches details for new cars
+4. Continues on schedule
+
+### Subsequent Runs
+
+On each scheduled run:
+1. Loads previous scrape from Redis
+2. Performs new scrape
+3. Compares: current vs previous
+4. Finds NEW cars (not seen before)
+5. Fetches their details (2 second delay between requests)
+6. Saves to `output/new-cars-<timestamp>.json`
+
+### API Details
+
+- **Endpoint:** `POST https://caromoto.com/FindVehicle/GetDetailInfo`
+- **Body:** `auction=MAN&vehicleId=<id>`
+- **Rate Limit:** 2 seconds between requests
+
+### Output Example
+
+```json
+{
+  "timestamp": "2026-03-04T14:30:00.000Z",
+  "newCarsCount": 3,
+  "cars": [
+    {
+      "basicInfo": {
+        "detailsUrl": "/FindVehicle?auction=MAN&info_id=ABC123",
+        "make": "Mercedes-Benz",
+        "model": "GLE 350",
+        "year": 2020
+      },
+      "detailedInfo": {
+        "vin": "ABC123",
+        "engine": "3.0L V6 Turbo",
+        "transmission": "9-Speed Automatic",
+        ...
+      }
+    }
+  ]
+}
 ```
 
-## Project Structure
+---
 
-Here is an overview of the project's structure:
+## Redis Data Structure
 
-```
-/home/raouf/workspaces/personnal/projects/node-ts-starter
-├── .eslintrc.json
-├── .env
-├── .env.example
-├── .eslintignore
-├── .prettierrc
-├── bin
-│   ├── install.sh
-│   └── start.sh
-├── Dockerfile
-├── docker-compose.yaml
-├── package.json
-├── package-lock.json
-├── README.md
-├── src
-│   ├── app
-│   │   ├── controllers
-│   │   │   └── user.controller.ts
-│   │   ├── models
-│   │   │   └── user.model.ts
-│   │   ├── repositories
-│   │   │   ├── base.repo.ts
-│   │   │   └── user.repo.ts
-│   │   ├── routes
-│   │   │   ├── routes.ts
-│   │   │   └── user.routes.ts
-│   │   ├── services
-│   │   │   ├── base.service.ts
-│   │   │   └── user.service.ts
-│   │   ├── templates
-│   │   │   ├── app
-│   │   │   │   └── presentation.html
-│   │   │   └── mail
-│   │   │       └── welcome.html
-│   │   ├── utils
-│   │   │   ├── handlers
-│   │   │   │   ├── error
-│   │   │   │   │   ├── global.ts
-│   │   │   │   │   ├── notfound.ts
-│   │   │   │   │   └── index.ts
-│   │   │   │   ├── res
-│   │   │   │   │   └── index.ts
-│   │   │   │   └── index.ts
-│   │   │   ├── middlewares
-│   │   │   │   ├── bruteforce.ts
-│   │   │   │   ├── client-authentication.ts
-│   │   │   │   ├── rate-limiter.ts
-│   │   │   │   ├── validate.ts
-│   │   │   │   └── index.ts
-│   │   │   ├── types
-│   │   │   │   ├── service-response.ts
-│   │   │   │   ├── user.ts
-│   │   │   │   └── index.ts
-│   │   │   └── validators
-│   │   │       ├── user.ts
-│   │   │       └── index.ts
-│   ├── config
-│   │   └── index.ts
-│   ├── constants
-│   │   └── index.ts
-│   ├── framework
-│   │   ├── database
-│   │   │   ├── mongoose
-│   │   │   │   └── db.ts
-│   │   │   ├── redis
-│   │   │   │   └── redis.ts
-│   │   │   └── index.ts
-│   │   ├── storage
-│   │   │   └── minio
-│   │   │       └── minio.ts
-│   │   ├── webserver
-│   │   │   └── express.ts
-│   │   └── index.ts
-│   ├── helpers
-│   │   ├── db-connection-test.ts
-│   │   ├── index.ts
-│   │   ├── init-services.ts
-│   │   ├── minio-test.ts
-│   │   ├── redis-test.ts
-│   │   ├── string.ts
-│   │   └── time.ts
-│   ├── server.ts
-│   └── index.ts
-├── commitlint.config.js
-├── tsconfig.json
-└── .prettierignore
+### Keys
+
+- `caromoto:scraping:history` - List of historical scraping results (max 100)
+- `caromoto:scraping:latest` - Most recent scraping result
+- `caromoto:scraping:stats` - Aggregated statistics
+
+### Data Format
+
+```typescript
+interface ScrapedCarData {
+  id: string;              // e.g., "scraping_1709567890123"
+  timestamp: Date;
+  data: any[];             // Array of car objects
+  carsCount: number;
+  loadTime: number;        // milliseconds
+}
+
+interface StorageStats {
+  totalScrapings: number;
+  lastScrapingTime: Date | null;
+  averageCarsCount: number;
+  storageSize: number;
+}
 ```
 
-## Scripts Explanation
+## File Backups
 
-### `bin/install.sh`
+In addition to Redis, scraping results are saved to:
 
-This script sets up the project by performing the following tasks:
-- Copies the `.env.example` file to `.env`, replacing any existing `.env` file.
-- Installs npm dependencies.
+```
+src/apps/scraper/caromoto-auth-mercedes-gle-scraper/output/
+└── GLE-350-2020-2021_DD_MM_YYYY_HH_MM_SS.json
+```
 
-### `bin/start.sh`
+## Telegram Notifications
 
-This script runs the application by performing the following tasks:
-- Checks if Docker and Docker Compose are installed.
-- Runs the `install.sh` script to ensure dependencies are installed.
-- Sets the `NODE_ENV` environment variable based on the provided argument (`--prod` for production).
-- Starts the Docker containers using Docker Compose.
+Configure Telegram bot for notifications:
 
-## Dockerfile
+1. Create a bot with [@BotFather](https://t.me/botfather)
+2. Get your chat ID:
 
-The Dockerfile defines how the Docker image is built. It includes steps for setting up the working directory, installing dependencies, copying the source code, building the TypeScript project, and defining the startup command.
+```bash
+npm run telegram:get-chat-id
+```
 
-## docker-compose.yml
-
-This file defines the Docker services for the application, including the application itself, MongoDB, Redis, MinIO, and Maildev. It uses environment variables from the `.env` file to configure the services.
-
-## Environment Variables
-
-The `.env` file contains the environment variables required by the application. It is generated from the `.env.example` file during installation. Ensure the following variables are set:
+3. Update `.env`:
 
 ```env
-# Engine
-PORT=9095
-ENABLE_CLIENT_AUTH=true
-
-# Client authentication
-BASIC_AUTH_USER=admin
-BASIC_AUTH_PASS=secret
-
-# Rate limiting
-RATE_LIMIT_WINDOW_MS=900000
-RATE_LIMIT_MAX=100
-
-# Brute force protection
-BRUTE_FORCE_FREE_RETRIES=5
-BRUTE_FORCE_MIN_WAIT=300000
-BRUTE_FORCE_MAX_WAIT=3600000
-BRUTE_FORCE_LIFETIME=86400
-
-# Database
-DB_URI=mongodb://mongo:27017
-DB_NAME=mydatabase
-MONGO_CLIENT_PORT=9005
-
-# Cache
-REDIS_HOST=redis
-REDIS_SERVER_PORT=9079
-
-# MinIO
-MINIO_ENDPOINT=minio
-MINIO_ACCESS_KEY=minio-access-key
-MINIO_SECRET_KEY=minio-secret-key
-MINIO_API_PORT=9500
-MINIO_CONSOLE_PORT=9050
-
-# Maildev
-MAILDEV_HOST=maildev
-MAILDEV_PORT=1025
-MAILDEV_SMTP=9025
-MAILDEV_WEBAPP_PORT=9080
+TELEGRAM_BOT_TOKEN=your-bot-token
+TELEGRAM_CHAT_ID=your-chat-id
 ```
 
-## Docker Configuration
+## Monitoring
 
-The Docker configuration allows the application to run in isolated containers. The services defined in `docker-compose.yml` include:
+### Application Logs
 
-- **app**: The main Node.js application.
-- **mongo**: MongoDB database service.
-- **redis**: Redis caching service.
-- **minio**: MinIO object storage service.
-- **maildev**: Maildev service for testing email sending.
+Logs are written to:
+- `logs/combined.log` - All logs
+- `logs/error.log` - Error logs only
+- `logs/exceptions.log` - Uncaught exceptions
 
-### Building and Starting Docker Containers
+### Process Management
 
-To build and start the Docker containers, run:
+For production, use PM2:
 
-```sh
-docker-compose up --build
+```bash
+npm install -g pm2
+pm2 start build/main.js --name caromoto-scraper
+pm2 save
+pm2 startup
 ```
 
-This command will build the Docker images and start the services defined in `docker-compose.yml`.
+## Graceful Shutdown
 
-## Security Features
+The application handles:
+- `SIGTERM` - Kubernetes/Docker shutdown
+- `SIGINT` - CTRL+C
+- Uncaught exceptions
+- Unhandled rejections
 
-### Rate Limiting
+All handlers ensure:
+1. Stop scheduler
+2. Disconnect from Redis
+3. Clean browser resources
+4. Exit gracefully
 
-The rate limiter middleware is configured to limit the number of requests to the API within a specified time window. This helps protect against DoS attacks.
+## Development
 
-### Brute Force Protection
+### Build
 
-Brute force protection is implemented using `express-brute` and `express-brute-mongo`. It limits the number of failed login attempts and progressively increases the wait time between attempts after reaching a threshold.
+```bash
+npm run build
+```
 
-### Hiding Technology Stack
+### Lint
 
-The `helmet` middleware is used to hide the `X-Powered-By` header to
-
- obscure the technology stack of the application.
-
-### Content Security Policy
-
-A strict content security policy is enforced using the `helmet` middleware to prevent loading of unauthorized resources.
-
-## Linting and Formatting
-
-This project uses ESLint and Prettier for code linting and formatting.
-
-### Running ESLint
-
-To check for linting errors:
-
-```sh
+```bash
 npm run lint
-```
-
-To fix linting errors automatically:
-
-```sh
 npm run lint:fix
 ```
 
-### Running Prettier
+### Format
 
-To format your code:
-
-```sh
+```bash
 npm run format
 ```
 
-## Commit Message Guidelines
+## Troubleshooting
 
-To ensure consistent commit messages, this project uses commitlint with husky to enforce commit message guidelines.
+### Redis Connection Failed
 
-### Commit Message Format
+```bash
+# Check if Redis is running
+redis-cli ping
 
-- **build**: Changes that affect the build system or external dependencies
-- **chore**: Miscellaneous changes that don't affect the main codebase (e.g., configuring development tools, setting up project-specific settings)
-- **ci**: Changes to our CI configuration files and scripts
-- **docs**: Documentation only changes
-- **feat**: A new feature
-- **fix**: A bug fix
-- **update**: Update something for a specific use case
-- **perf**: A code change that improves performance
-- **refactor**: A code change that neither fixes a bug nor adds a feature
-- **style**: Changes that do not affect the meaning of the code (e.g., white-space, formatting, missing semi-colons)
-- **test**: Adding missing tests or correcting existing tests
-- **translation**: Changes related to translations or language localization
-- **sec**: Changes that address security vulnerabilities, implement security measures, or enhance the overall security of the codebase
+# Start Redis
+redis-server
+```
 
-### Setting Up Commitlint
+### Scraper Login Issues
 
-Commitlint and Husky are already configured and set up to ensure that commit messages follow the specified format before they are committed to the repository.
+- Verify credentials in `.env`
+- Check if Caromoto changed their login page structure
+- Review debug screenshots in project root
 
-## Accessing Services
+### Scheduler Not Running
 
-After running the application, you can access the following services:
+- Check `SCHEDULER_ENABLED=true` in `.env`
+- Verify cron expression is valid
+- Review logs for errors
 
-- **Node.js Application**: [http://localhost:9095](http://localhost:9095)
-- **MongoDB**: Accessible on port `9005`
-- **Redis**: Accessible on port `9079`
-- **MinIO API**: Accessible on port `9500`
-- **MinIO WebApp**: Accessible on port `9050`
-- **MailDev SMTP (external)**: Accessible on port `9025`
-- **MailDev WebApp**: Accessible on port `9080`
+## API Reference
 
-## Contributing
+### RedisStorageService
 
-Contributions, issues, and feature requests are welcome!
+```typescript
+// Get latest scraping
+const latest = await storage.getLatestScraping();
 
-Feel free to check the [issues page](https://github.com/fless-lab/node-ts-starter/issues) if you want to contribute.
+// Get history
+const history = await storage.getScrapingHistory(10);
 
-Don't forget to give a star if you find this project useful!
+// Get stats
+const stats = await storage.getStats();
+
+// Search scrapings
+const results = await storage.searchScrapings({
+  fromDate: new Date('2024-01-01'),
+  minCars: 5,
+});
+```
+
+### SchedulerService
+
+```typescript
+// Schedule a job
+await scheduler.scheduleJob({
+  name: 'my-job',
+  cronExpression: '0 */6 * * *',
+  handler: async () => { /* job logic */ },
+  runOnStart: true,
+});
+
+// Get job stats
+const stats = scheduler.getAllJobsStats();
+```
+
+### CarDetailsService
+
+```typescript
+// Extract vehicle ID from detailsUrl
+const vehicleId = carDetails.extractVehicleId(car.detailsUrl);
+
+// Fetch details for a single car
+const result = await carDetails.fetchCarDetails('MAN', vehicleId);
+
+// Fetch details for multiple cars
+const detailsMap = await carDetails.fetchMultipleCarDetails(
+  cars,
+  'MAN',
+  2000 // delay in ms
+);
+
+// Find new cars by comparison
+const newCars = carDetails.findNewCars(currentCars, previousCars);
+```
+
+---
+
+## 📚 Documentation
+
+Comprehensive documentation is available:
+
+- **[WORKFLOW.md](./WORKFLOW.md)** - Complete workflow guide with examples
+- **[CAR_DETAILS_FEATURE.md](./CAR_DETAILS_FEATURE.md)** - Detailed feature documentation
+- **[CHANGES_SUMMARY.md](./CHANGES_SUMMARY.md)** - Summary of all changes
+- **[IMPLEMENTATION_COMPLETE.md](./IMPLEMENTATION_COMPLETE.md)** - Implementation details
+- **[SETUP.md](./SETUP.md)** - Setup and installation guide
+- **[TRANSFORMATION_SUMMARY.md](./TRANSFORMATION_SUMMARY.md)** - Architecture transformation
+
+---
+
+## License
+
+ISC
+
+## Author
+
+Abdou-Raouf ATARMLA

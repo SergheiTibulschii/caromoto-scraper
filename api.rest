@@ -1,4 +1,76 @@
-https://documenter.getpostman.com/view/15120939/2sA3kUGMx7
+### Health check
+GET http://localhost:9095/
 
+### Scrape single URL
+POST http://localhost:9095/scraper/scrape
+Content-Type: application/json
 
-Feel free to let comments is something going wrong
+{
+  "url": "https://example.com",
+  "options": {
+    "waitForSelector": "body",
+    "extractors": {
+      "title": "h1",
+      "description": "p"
+    }
+  }
+}
+
+### Scrape multiple URLs (batch)
+POST http://localhost:9095/scraper/scrape-batch
+Content-Type: application/json
+
+{
+  "urls": [
+    "https://example.com/page1",
+    "https://example.com/page2"
+  ],
+  "options": {
+    "waitForSelector": "main",
+    "extractors": {
+      "title": "h1"
+    }
+  }
+}
+
+### Get all scraping jobs
+GET http://localhost:9095/scraper/jobs?page=1&limit=10
+
+### Get job by ID
+GET http://localhost:9095/scraper/jobs/YOUR_JOB_ID_HERE
+
+### Cancel job
+DELETE http://localhost:9095/scraper/jobs/YOUR_JOB_ID_HERE
+
+### Get all scraped data
+GET http://localhost:9095/scraper/data?page=1&limit=10
+
+### Get scraped data by ID
+GET http://localhost:9095/scraper/data/YOUR_DATA_ID_HERE
+
+### Get page pool statistics
+GET http://localhost:9095/scraper/stats
+
+### Scrape Caromoto without authentication
+POST http://localhost:9095/scraper/scrape-caromoto
+Content-Type: application/json
+
+{
+  "url": "https://caromoto.com",
+  "options": {
+    "timeout": 60000
+  }
+}
+
+### Scrape Caromoto WITH authentication (login + specific search)
+POST http://localhost:9095/scraper/scrape-caromoto-auth
+Content-Type: application/json
+
+{
+  "email": "moldex.dan@gmail.com",
+  "password": "446236",
+  "searchUrl": "https://caromoto.com/md/FindVehicle/Index?page_size=25&sort=years&order=asc&auction=MAN&filter_type=MAKE&filter_val=00000000-0000-3044-0000-000000010000---Mercedes-Benz&filter_type=YEAR_FROM&filter_val=2020--TO--2021---2020%20-%202021&filter_type=ODOMETER_FROM&filter_val=--TO--150000---%3C%20150000&filter_type=MODEL&filter_val=a91b845e-c513-47b6-a5a1-e603c7929cfc---GLE&filter_type=ENGINE&filter_val=00000000-0000-2000-0000-000000008490---%204-%D1%86%D0%B8%D0%BB%D0%B8%D0%BD%D0%B4%D1%80%D0%BE%D0%B2%D1%8B%D0%B9%20%D1%82%D1%83%D1%80%D0%B1%D0%BE&filter_type=DRIVE_TRAIN&filter_val=740a9317-9362-4747-9d5c-98cc0fa11c97---4%D0%A54",
+  "options": {
+    "timeout": 60000
+  }
+}
