@@ -1,21 +1,7 @@
 import Redis from 'ioredis';
 import { redisConfig } from '../core/config/redis.config';
 import LoggerService from '../common/shared/services/logger.service';
-
-export interface ScrapedCarData {
-  id: string;
-  timestamp: Date;
-  data: any;
-  carsCount: number;
-  loadTime: number;
-}
-
-export interface StorageStats {
-  totalScrapings: number;
-  lastScrapingTime: Date | null;
-  averageCarsCount: number;
-  storageSize: number;
-}
+import { ScrapedCarData, StorageStats } from './storage.types';
 
 export class RedisStorageService {
   private static instance: RedisStorageService;
@@ -28,6 +14,16 @@ export class RedisStorageService {
   private constructor() {
     this.logger = LoggerService.getInstance();
 
+    this.logger.info('=== Redis Configuration ===');
+    this.logger.info(`Host: ${redisConfig.host || 'NOT SET'}`);
+    this.logger.info(`Port: ${redisConfig.port}`);
+    this.logger.info(`DB: ${redisConfig.db}`);
+    this.logger.info(
+      `Password: ${redisConfig.password ? '***SET***' : 'NOT SET'}`,
+    );
+    this.logger.info(`Key Prefix: ${redisConfig.keyPrefix}`);
+    this.logger.info('===========================');
+
     const redisOptions: any = {
       host: redisConfig.host,
       port: redisConfig.port,
@@ -39,9 +35,12 @@ export class RedisStorageService {
           this.logger.error('Redis max retries exceeded');
           return null;
         }
-        return Math.min(times * redisConfig.retryDelay, 3000);
+        const delay = Math.min(times * redisConfig.retryDelay, 3000);
+        this.logger.warn(`Redis retry attempt ${times}, waiting ${delay}ms`);
+        return delay;
       },
       lazyConnect: true,
+      connectTimeout: 10000,
     };
 
     if (redisConfig.password) {
@@ -83,10 +82,26 @@ export class RedisStorageService {
 
   public async connect(): Promise<void> {
     try {
+      this.logger.info('Attempting to connect to Redis...');
       await this.client.connect();
-      this.logger.info('Redis storage service initialized');
+      this.logger.info('✓ Redis storage service initialized successfully');
     } catch (error) {
-      this.logger.error('Failed to connect to Redis', error as Error);
+      const err = error as Error;
+      this.logger.error('✗ Failed to connect to Redis');
+      this.logger.error(`Error: ${err.message}`);
+      this.logger.error('Troubleshooting:');
+      this.logger.error(
+        '  1. Check if Redis host/password secrets are correct',
+      );
+      this.logger.error(
+        '  2. Verify Redis is accessible from Cloud Run (may need VPC connector)',
+      );
+      this.logger.error(
+        '  3. Check Redis instance is running and accepting connections',
+      );
+      this.logger.error(
+        `  4. Test connection: redis-cli -h ${redisConfig.host} -p ${redisConfig.port}`,
+      );
       throw error;
     }
   }

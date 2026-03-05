@@ -56,9 +56,9 @@ RUN npx playwright install chromium
 # Copy built application from builder stage
 COPY --from=builder /app/build ./build
 
-# Create output and logs directories with proper permissions
-RUN mkdir -p /app/output /app/logs && \
-    chown -R node:node /app/output /app/logs
+# Create output, logs, and data directories with proper permissions
+RUN mkdir -p /app/output /app/logs /app/data && \
+    chown -R node:node /app/output /app/logs /app/data
 
 # Set environment variables
 ENV NODE_ENV=production

@@ -1,6 +1,6 @@
 import dotenv from 'dotenv';
 import { MercedesGLEScraper } from './apps/scraper/caromoto-auth-mercedes-gle-scraper';
-import { RedisStorageService } from './services/redis-storage.service';
+import { FileStorageService } from './services/file-storage.service';
 import { SchedulerService } from './services/scheduler.service';
 import { CarDetailsService } from './services/car-details.service';
 import { schedulerConfig } from './core/config/scheduler.config';
@@ -17,7 +17,7 @@ type AppMode = 'dev' | 'prod';
 
 class CaromotoScraperApp {
   private scraper: MercedesGLEScraper;
-  private storage?: RedisStorageService;
+  private storage?: FileStorageService;
   private scheduler?: SchedulerService;
   private carDetailsService: CarDetailsService;
   private telegram: TelegramService;
@@ -39,7 +39,7 @@ class CaromotoScraperApp {
     this.outputDir = path.join(__dirname, '../output');
 
     if (this.mode === 'prod') {
-      this.storage = RedisStorageService.getInstance();
+      this.storage = FileStorageService.getInstance();
       this.scheduler = SchedulerService.getInstance();
     }
   }
@@ -59,23 +59,19 @@ class CaromotoScraperApp {
         this.setupProcessHandlers();
 
         if (!this.storage) {
-          throw new Error('Redis storage not initialized');
+          throw new Error('Storage not initialized');
         }
 
-        this.logger.info('Connecting to Redis...');
-        this.logger.info(
-          `Redis Host: ${process.env.REDIS_HOST ? '***' : 'NOT SET'}`,
-        );
-        this.logger.info(`Redis Port: ${process.env.REDIS_PORT || '6379'}`);
+        this.logger.info('Initializing file storage...');
 
         await this.storage.connect();
 
         const isConnected = await this.storage.isConnected();
         if (!isConnected) {
-          throw new Error('Redis connection failed');
+          throw new Error('Storage initialization failed');
         }
 
-        this.logger.info('✓ Redis connected successfully');
+        this.logger.info('✓ File storage initialized successfully');
 
         if (schedulerConfig.enabled) {
           await this.setupScheduler();
@@ -175,12 +171,9 @@ class CaromotoScraperApp {
           mode: this.mode,
           scheduler: schedulerConfig.enabled ? 'active' : 'disabled',
           jobs: schedulerStatus,
-          redis: this.storage ? 'connected' : 'not connected',
+          storage: this.storage ? 'file-based' : 'not initialized',
           env: {
             nodeEnv: process.env.NODE_ENV,
-            redisHostSet: !!process.env.REDIS_HOST,
-            redisPasswordSet: !!process.env.REDIS_PASSWORD,
-            redisPort: process.env.REDIS_PORT || '6379',
           },
         };
 
@@ -341,6 +334,8 @@ class CaromotoScraperApp {
       throw new Error('No cars found in scraping result');
     }
 
+    let hasNewCars = false;
+
     if (storedCars && storedCars.length > 0) {
       const newCars = this.carDetailsService.findNewCars(
         scrapedCars,
@@ -348,15 +343,26 @@ class CaromotoScraperApp {
       );
 
       if (newCars.length > 0) {
+        hasNewCars = true;
         this.logger.info(`Found ${newCars.length} new car(s)`);
         await this.processAndNotifyNewCars(newCars);
+      } else {
+        this.logger.info('No new cars found - keeping existing storage data');
       }
+    } else {
+      // First run, no stored data yet
+      hasNewCars = true;
+      this.logger.info('First run - saving initial car data');
     }
 
-    await this.storage.saveScrapingResult(scrapedCars, {
-      carsCount: scrapedCars.length,
-      loadTime: result.data.metadata.loadTime,
-    });
+    // Only update storage if there are new cars
+    if (hasNewCars) {
+      await this.storage.saveScrapingResult(scrapedCars, {
+        carsCount: scrapedCars.length,
+        loadTime: result.data.metadata.loadTime,
+      });
+      this.logger.info('✓ Storage updated with new car data');
+    }
   }
 
   private async processAndNotifyNewCars(newCars: any[]): Promise<void> {
