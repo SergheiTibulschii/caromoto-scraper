@@ -48,6 +48,8 @@ images:
 options:
   substitutionOption: ALLOW_LOOSE
   logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+  timeout: 10800s
 substitutions:
   _AR_HOSTNAME: europe-west1-docker.pkg.dev
   _AR_REPOSITORY: cloud-run-source-deploy

@@ -134,16 +134,40 @@ export class ScraperService {
       }
 
       this.logger.info('Step 1: Navigating directly to login page...');
-      await page.goto('https://caromoto.com/md/Login?tab=signin', {
-        waitUntil: 'networkidle',
-        timeout: options.timeout || 30000,
-      });
+
+      try {
+        await page.goto('https://caromoto.com/md/Login?tab=signin', {
+          waitUntil: 'networkidle',
+          timeout: 60000,
+        });
+      } catch (error) {
+        this.logger.warn(
+          'First navigation attempt failed, retrying with different strategy...',
+        );
+        await page.goto('https://caromoto.com/md/Login?tab=signin', {
+          waitUntil: 'domcontentloaded',
+          timeout: 60000,
+        });
+      }
+
+      this.logger.info(`✓ Navigated to: ${page.url()}`);
+      this.logger.info(`✓ Page title: ${await page.title()}`);
 
       this.logger.info(
         'Step 2: Waiting for page to stabilize and resources to load...',
       );
       await page.waitForLoadState('domcontentloaded');
-      await page.waitForTimeout(3000);
+      await page.waitForTimeout(5000); // Increased wait time
+
+      // Take screenshot after navigation for debugging
+      const afterNavTimestamp = Date.now();
+      await page.screenshot({
+        path: `after-navigation-${afterNavTimestamp}.png`,
+        fullPage: true,
+      });
+      this.logger.info(
+        `✓ Screenshot saved: after-navigation-${afterNavTimestamp}.png`,
+      );
 
       this.logger.info(
         'Step 3: Checking for and dismissing any modals or overlays...',
@@ -172,22 +196,41 @@ export class ScraperService {
 
       // Take a screenshot for debugging if form is not visible
       try {
+        // First, get comprehensive page info
+        const pageInfo = await page.evaluate(() => {
+          return {
+            url: window.location.href,
+            readyState: document.readyState,
+            bodyHTML: document.body ? document.body.innerHTML.length : 0,
+            hasEmailInput: !!document.querySelector('#Signin_Email'),
+            hasPasswordInput: !!document.querySelector('#Signin_Password'),
+            hasForm: !!document.querySelector('form'),
+          };
+        });
+        this.logger.info('Page state:', pageInfo);
+
         // Wait for the form container first
+        this.logger.info('Waiting for form container...');
         await page.waitForSelector('form, .login-form, #signinform', {
-          timeout: 20000,
+          timeout: 30000,
           state: 'attached',
         });
+        this.logger.info('✓ Form container found');
 
         // Wait for inputs to be both visible and enabled
+        this.logger.info('Waiting for email input...');
         await page.waitForSelector('#Signin_Email', {
-          timeout: 20000,
+          timeout: 30000,
           state: 'visible',
         });
+        this.logger.info('✓ Email input visible');
 
+        this.logger.info('Waiting for password input...');
         await page.waitForSelector('#Signin_Password', {
-          timeout: 20000,
+          timeout: 30000,
           state: 'visible',
         });
+        this.logger.info('✓ Password input visible');
 
         // Additional check: ensure inputs are not covered by overlays
         const emailVisible = await page.isVisible('#Signin_Email');
@@ -199,13 +242,32 @@ export class ScraperService {
           );
         }
 
+        // Check if inputs are enabled
+        const inputStates = await page.evaluate(() => {
+          const email = document.querySelector(
+            '#Signin_Email',
+          ) as HTMLInputElement;
+          const password = document.querySelector(
+            '#Signin_Password',
+          ) as HTMLInputElement;
+          return {
+            emailDisabled: email?.disabled || false,
+            passwordDisabled: password?.disabled || false,
+            emailReadonly: email?.readOnly || false,
+            passwordReadonly: password?.readOnly || false,
+          };
+        });
+        this.logger.info('Input states:', inputStates);
+
         this.logger.info('✓ Login form is visible and ready');
       } catch (error) {
         this.logger.error(
-          'Login form not visible, taking screenshot for debugging...',
+          'Login form not visible, performing comprehensive debugging...',
         );
+
+        const debugTimestamp = Date.now();
         await page.screenshot({
-          path: `debug-login-form-${Date.now()}.png`,
+          path: `debug-login-form-${debugTimestamp}.png`,
           fullPage: true,
         });
 
@@ -232,6 +294,33 @@ export class ScraperService {
         );
         this.logger.info(`Found ${overlays.length} potential overlays`);
 
+        // Log all forms on the page
+        const forms = await page.$$eval('form', (forms) =>
+          forms.map((f) => ({
+            id: f.id,
+            className: f.className,
+            action: f.action,
+          })),
+        );
+        this.logger.info('Forms found:', forms);
+
+        // Log all inputs on the page
+        const inputs = await page.$$eval('input', (inputs) =>
+          inputs.map((i) => ({
+            id: i.id,
+            name: i.name,
+            type: i.type,
+            visible: i.offsetParent !== null,
+          })),
+        );
+        this.logger.info('Inputs found:', inputs);
+
+        // Log page HTML snippet
+        const htmlSnippet = await page.evaluate(() =>
+          document.body.innerHTML.substring(0, 1000),
+        );
+        this.logger.info('HTML snippet:', { htmlSnippet });
+
         // Log page URL and title
         this.logger.info(`Current URL: ${page.url()}`);
         this.logger.info(`Page title: ${await page.title()}`);
@@ -241,56 +330,195 @@ export class ScraperService {
 
       this.logger.info('Step 5: Filling in login credentials...');
 
-      // Ensure inputs are interactable by clicking on them first
-      await page.click('#Signin_Email', { force: false });
-      await page.waitForTimeout(300);
-      await page.fill('#Signin_Email', email);
-      await page.waitForTimeout(500);
+      // Method 1: Try standard Playwright methods
+      let emailFilled = false;
+      let passwordFilled = false;
 
-      // Verify email was filled
-      const emailValue = await page.inputValue('#Signin_Email');
-      if (emailValue !== email) {
-        this.logger.warn(
-          `Email input value mismatch. Expected: ${email}, Got: ${emailValue}`,
+      try {
+        this.logger.info('Attempting Method 1: Standard fill...');
+
+        // Ensure inputs are interactable by clicking on them first
+        await page.click('#Signin_Email', { force: false });
+        await page.waitForTimeout(300);
+        await page.fill('#Signin_Email', '');
+        await page.fill('#Signin_Email', email);
+        await page.waitForTimeout(500);
+
+        // Verify email was filled
+        let emailValue = await page.inputValue('#Signin_Email');
+        if (emailValue !== email) {
+          this.logger.warn(
+            `Email input value mismatch. Retrying with type method...`,
+          );
+          await page.fill('#Signin_Email', '');
+          await page.type('#Signin_Email', email, { delay: 100 });
+          emailValue = await page.inputValue('#Signin_Email');
+        }
+        emailFilled = emailValue === email;
+        this.logger.info(
+          `✓ Email filled: ${emailFilled ? 'SUCCESS' : 'FAILED'}`,
         );
-        // Try again with type instead of fill
-        await page.type('#Signin_Email', email, { delay: 50 });
+
+        await page.click('#Signin_Password', { force: false });
+        await page.waitForTimeout(300);
+        await page.fill('#Signin_Password', '');
+        await page.fill('#Signin_Password', password);
+        await page.waitForTimeout(500);
+
+        // Verify password was filled
+        let passwordValue = await page.inputValue('#Signin_Password');
+        if (passwordValue !== password) {
+          this.logger.warn('Password input appears empty, retrying...');
+          await page.fill('#Signin_Password', '');
+          await page.type('#Signin_Password', password, { delay: 100 });
+          passwordValue = await page.inputValue('#Signin_Password');
+        }
+        passwordFilled = passwordValue === password;
+        this.logger.info(
+          `✓ Password filled: ${passwordFilled ? 'SUCCESS' : 'FAILED'}`,
+        );
+      } catch (error) {
+        this.logger.warn('Method 1 failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
 
-      await page.click('#Signin_Password', { force: false });
-      await page.waitForTimeout(300);
-      await page.fill('#Signin_Password', password);
-      await page.waitForTimeout(500);
+      // Method 2: Use JavaScript if Method 1 failed
+      if (!emailFilled || !passwordFilled) {
+        this.logger.warn(
+          'Method 1 failed, trying Method 2: JavaScript evaluation...',
+        );
 
-      // Verify password was filled
-      const passwordValue = await page.inputValue('#Signin_Password');
-      if (passwordValue !== password) {
-        this.logger.warn('Password input appears empty, retrying...');
-        await page.type('#Signin_Password', password, { delay: 50 });
+        await page.evaluate(
+          ({ emailVal, passVal }) => {
+            const emailInput = document.querySelector(
+              '#Signin_Email',
+            ) as HTMLInputElement;
+            const passwordInput = document.querySelector(
+              '#Signin_Password',
+            ) as HTMLInputElement;
+
+            if (emailInput) {
+              emailInput.value = emailVal;
+              emailInput.dispatchEvent(new Event('input', { bubbles: true }));
+              emailInput.dispatchEvent(new Event('change', { bubbles: true }));
+              emailInput.dispatchEvent(new Event('blur', { bubbles: true }));
+            }
+
+            if (passwordInput) {
+              passwordInput.value = passVal;
+              passwordInput.dispatchEvent(
+                new Event('input', { bubbles: true }),
+              );
+              passwordInput.dispatchEvent(
+                new Event('change', { bubbles: true }),
+              );
+              passwordInput.dispatchEvent(new Event('blur', { bubbles: true }));
+            }
+          },
+          { emailVal: email, passVal: password },
+        );
+
+        await page.waitForTimeout(1000);
+
+        // Verify
+        const emailValue = await page.inputValue('#Signin_Email');
+        const passwordValue = await page.inputValue('#Signin_Password');
+        emailFilled = emailValue === email;
+        passwordFilled = passwordValue === password;
+        this.logger.info(
+          `✓ Email via JS: ${emailFilled ? 'SUCCESS' : 'FAILED'}`,
+        );
+        this.logger.info(
+          `✓ Password via JS: ${passwordFilled ? 'SUCCESS' : 'FAILED'}`,
+        );
       }
+
+      if (!emailFilled || !passwordFilled) {
+        throw new Error('Failed to fill login credentials after all attempts');
+      }
+
+      // Take screenshot before clicking submit
+      const beforeSubmitTimestamp = Date.now();
+      await page.screenshot({
+        path: `before-submit-${beforeSubmitTimestamp}.png`,
+        fullPage: true,
+      });
+      this.logger.info(
+        `✓ Screenshot saved: before-submit-${beforeSubmitTimestamp}.png`,
+      );
 
       this.logger.info('✓ Credentials filled successfully');
 
       this.logger.info('Step 6: Submitting login form...');
-      const signInButton = await page.waitForSelector('a.login__signin', {
-        timeout: 5000,
-        state: 'visible',
-      });
 
-      if (!signInButton) {
-        throw new Error('Sign in button not found');
+      try {
+        const signInButton = await page.waitForSelector('a.login__signin', {
+          timeout: 10000,
+          state: 'visible',
+        });
+
+        if (!signInButton) {
+          throw new Error('Sign in button not found');
+        }
+
+        this.logger.info('✓ Sign in button found, clicking...');
+
+        // Try multiple click methods
+        try {
+          await signInButton.click();
+        } catch (clickError) {
+          this.logger.warn('Standard click failed, trying JavaScript click...');
+          await page.evaluate(() => {
+            const button = document.querySelector(
+              'a.login__signin',
+            ) as HTMLElement;
+            if (button) button.click();
+          });
+        }
+
+        this.logger.info('✓ Sign in button clicked');
+      } catch (error) {
+        this.logger.error('Failed to find/click sign in button');
+        await page.screenshot({
+          path: `no-signin-button-${Date.now()}.png`,
+          fullPage: true,
+        });
+        throw error;
       }
 
-      await signInButton.click();
-
       this.logger.info('Step 7: Waiting for redirect after login...');
-      await page.waitForLoadState('networkidle', { timeout: 20000 });
+
+      try {
+        await page.waitForLoadState('networkidle', { timeout: 30000 });
+      } catch (error) {
+        this.logger.warn('Network idle timeout, checking URL anyway...');
+      }
+
+      await page.waitForTimeout(2000);
 
       const currentUrl = page.url();
-      if (currentUrl.includes('/Login/Index')) {
-        const errorMsg = await page.textContent(
-          '.validation_summary, .error-message',
-        );
+      this.logger.info(`Current URL after login attempt: ${currentUrl}`);
+
+      // Check if we're still on login page
+      if (currentUrl.includes('/Login')) {
+        await page.screenshot({
+          path: `login-failed-${Date.now()}.png`,
+          fullPage: true,
+        });
+
+        const errorMsg = await page
+          .textContent(
+            '.validation_summary, .error-message, .field-validation-error',
+          )
+          .catch(() => null);
+
+        // Log page content for debugging
+        const pageText = await page.evaluate(() => document.body.innerText);
+        this.logger.info('Page text after login', {
+          pageText: pageText.substring(0, 500),
+        });
+
         throw new Error(
           `Login failed - still on login page. Error: ${errorMsg || 'Unknown error'}`,
         );
