@@ -100,7 +100,7 @@ export class BrowserManager {
       timezoneId: 'America/New_York',
       permissions: ['geolocation'],
       geolocation: { longitude: -73.935242, latitude: 40.73061 },
-      colorScheme: 'light',
+      colorScheme: 'light' as const,
       deviceScaleFactor: 1,
       // Set extra HTTP headers to appear more like a real browser
       extraHTTPHeaders: {
