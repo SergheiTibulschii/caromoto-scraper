@@ -135,27 +135,71 @@ export class ScraperService {
 
       this.logger.info('Step 1: Navigating directly to login page...');
       await page.goto('https://caromoto.com/md/Login?tab=signin', {
-        waitUntil: 'load',
-        timeout: options.timeout || 10000,
+        waitUntil: 'networkidle',
+        timeout: options.timeout || 30000,
       });
 
-      this.logger.info('Step 2: Waiting for page to stabilize...');
-      await page.waitForTimeout(2000);
+      this.logger.info(
+        'Step 2: Waiting for page to stabilize and resources to load...',
+      );
+      await page.waitForLoadState('domcontentloaded');
+      await page.waitForTimeout(3000);
 
-      this.logger.info('Step 3: Checking for and dismissing any modals...');
+      this.logger.info(
+        'Step 3: Checking for and dismissing any modals or overlays...',
+      );
 
-      this.logger.info('Step 4: Waiting for login form to be visible...');
+      // Try to close any cookie consent or modal popups
+      try {
+        const closeButtons = await page.$$(
+          'button[class*="close"], button[class*="dismiss"], .modal-close, [aria-label*="Close"]',
+        );
+        for (const button of closeButtons) {
+          try {
+            await button.click({ timeout: 1000 });
+            await page.waitForTimeout(500);
+          } catch {
+            // Ignore if button not clickable
+          }
+        }
+      } catch {
+        this.logger.info('No modals to dismiss');
+      }
+
+      this.logger.info(
+        'Step 4: Waiting for login form to be visible and interactable...',
+      );
 
       // Take a screenshot for debugging if form is not visible
       try {
+        // Wait for the form container first
+        await page.waitForSelector('form, .login-form, #signinform', {
+          timeout: 20000,
+          state: 'attached',
+        });
+
+        // Wait for inputs to be both visible and enabled
         await page.waitForSelector('#Signin_Email', {
-          timeout: 15000,
+          timeout: 20000,
           state: 'visible',
         });
+
         await page.waitForSelector('#Signin_Password', {
-          timeout: 15000,
+          timeout: 20000,
           state: 'visible',
         });
+
+        // Additional check: ensure inputs are not covered by overlays
+        const emailVisible = await page.isVisible('#Signin_Email');
+        const passwordVisible = await page.isVisible('#Signin_Password');
+
+        if (!emailVisible || !passwordVisible) {
+          throw new Error(
+            `Form inputs not fully visible - Email: ${emailVisible}, Password: ${passwordVisible}`,
+          );
+        }
+
+        this.logger.info('✓ Login form is visible and ready');
       } catch (error) {
         this.logger.error(
           'Login form not visible, taking screenshot for debugging...',
@@ -165,27 +209,67 @@ export class ScraperService {
           fullPage: true,
         });
 
-        // Try to check if inputs exist but are hidden
+        // Comprehensive debugging
         const emailExists = await page.$('#Signin_Email');
         const passwordExists = await page.$('#Signin_Password');
+        const emailVisible = await page
+          .isVisible('#Signin_Email')
+          .catch(() => false);
+        const passwordVisible = await page
+          .isVisible('#Signin_Password')
+          .catch(() => false);
+
         this.logger.info(
-          `Email input exists: ${!!emailExists}, Password input exists: ${!!passwordExists}`,
+          `Email - exists: ${!!emailExists}, visible: ${emailVisible}`,
+        );
+        this.logger.info(
+          `Password - exists: ${!!passwordExists}, visible: ${passwordVisible}`,
         );
 
-        // Check for any overlays or modals
+        // Check for overlays
         const overlays = await page.$$(
           'div.modal, div.overlay, div[style*="z-index"]',
         );
         this.logger.info(`Found ${overlays.length} potential overlays`);
 
+        // Log page URL and title
+        this.logger.info(`Current URL: ${page.url()}`);
+        this.logger.info(`Page title: ${await page.title()}`);
+
         throw error;
       }
 
       this.logger.info('Step 5: Filling in login credentials...');
+
+      // Ensure inputs are interactable by clicking on them first
+      await page.click('#Signin_Email', { force: false });
+      await page.waitForTimeout(300);
       await page.fill('#Signin_Email', email);
       await page.waitForTimeout(500);
+
+      // Verify email was filled
+      const emailValue = await page.inputValue('#Signin_Email');
+      if (emailValue !== email) {
+        this.logger.warn(
+          `Email input value mismatch. Expected: ${email}, Got: ${emailValue}`,
+        );
+        // Try again with type instead of fill
+        await page.type('#Signin_Email', email, { delay: 50 });
+      }
+
+      await page.click('#Signin_Password', { force: false });
+      await page.waitForTimeout(300);
       await page.fill('#Signin_Password', password);
       await page.waitForTimeout(500);
+
+      // Verify password was filled
+      const passwordValue = await page.inputValue('#Signin_Password');
+      if (passwordValue !== password) {
+        this.logger.warn('Password input appears empty, retrying...');
+        await page.type('#Signin_Password', password, { delay: 50 });
+      }
+
+      this.logger.info('✓ Credentials filled successfully');
 
       this.logger.info('Step 6: Submitting login form...');
       const signInButton = await page.waitForSelector('a.login__signin', {

@@ -93,6 +93,31 @@ export class BrowserManager {
       userAgent: playwrightConfig.userAgent,
       ignoreHTTPSErrors: true,
       bypassCSP: true,
+      // Additional options for better headless compatibility
+      hasTouch: false,
+      isMobile: false,
+      locale: 'en-US',
+      timezoneId: 'America/New_York',
+      permissions: ['geolocation'],
+      geolocation: { longitude: -73.935242, latitude: 40.73061 },
+      colorScheme: 'light',
+      deviceScaleFactor: 1,
+      // Set extra HTTP headers to appear more like a real browser
+      extraHTTPHeaders: {
+        Accept:
+          'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'sec-ch-ua':
+          '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"Windows"',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Upgrade-Insecure-Requests': '1',
+      },
     };
 
     const context = await this.state.browser.newContext(contextOptions);
@@ -106,27 +131,67 @@ export class BrowserManager {
 
   private async applyStealthMode(context: BrowserContext): Promise<void> {
     await context.addInitScript(() => {
+      // Remove webdriver property
       Object.defineProperty(navigator, 'webdriver', {
         get: () => undefined,
       });
 
+      // Add realistic plugin array
       Object.defineProperty(navigator, 'plugins', {
         get: () => [1, 2, 3, 4, 5],
       });
 
+      // Set languages
       Object.defineProperty(navigator, 'languages', {
         get: () => ['en-US', 'en'],
       });
 
+      // Add chrome object
       (window as any).chrome = {
         runtime: {},
       };
 
+      // Mock permissions
       Object.defineProperty(navigator, 'permissions', {
         get: () => ({
           query: () => Promise.resolve({ state: 'granted' }),
         }),
       });
+
+      // Mock hardware concurrency
+      Object.defineProperty(navigator, 'hardwareConcurrency', {
+        get: () => 8,
+      });
+
+      // Mock connection
+      Object.defineProperty(navigator, 'connection', {
+        get: () => ({
+          effectiveType: '4g',
+          rtt: 100,
+          downlink: 10,
+          saveData: false,
+        }),
+      });
+
+      // Override the Notification permission
+      const originalQuery = window.navigator.permissions.query;
+      (window.navigator.permissions as any).query = (parameters: any) =>
+        parameters.name === 'notifications'
+          ? Promise.resolve({ state: Notification.permission })
+          : originalQuery(parameters);
+
+      // Remove automation indicators
+      delete (window.document as any).__playwright;
+      delete (window.document as any).__puppeteer;
+
+      // Mock battery
+      (navigator as any).getBattery = () =>
+        Promise.resolve({
+          charging: true,
+          chargingTime: 0,
+          dischargingTime: Infinity,
+          level: 1,
+        });
     });
 
     this.logger.info('Stealth mode applied to browser context');
